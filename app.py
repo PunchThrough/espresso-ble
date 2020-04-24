@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import logging
+
 import dbus
 import dbus.exceptions
 import dbus.mainloop.glib
@@ -18,6 +20,7 @@ from ble import (
 
 import requests
 import array
+from enum import Enum
 
 MainLoop = None
 try:
@@ -28,10 +31,10 @@ except ImportError:
     import gobject as GObject
 
     MainLoop = GObject.MainLoop
-import sys
 
-from random import randint
+logger = logging.getLogger("app")
 
+VivaldiBaseUrl = "XXXXXXXXXXXX"
 
 mainloop = None
 
@@ -62,11 +65,11 @@ class FailedException(dbus.exceptions.DBusException):
 
 
 def register_app_cb():
-    print("GATT application registered")
+    logging.info("GATT application registered")
 
 
 def register_app_error_cb(error):
-    print("Failed to register application: " + str(error))
+    logger.critical("Failed to register application: " + str(error))
     mainloop.quit()
 
 
@@ -88,22 +91,54 @@ class VivaldiS1Service(Service):
 
 class PowerControlCharacteristic(Characteristic):
     uuid = "4116f8d2-9f66-4f58-a53d-fc7440e7c14e"
-    description = b"Get/set machine power state"
+    description = b"Get/set machine power state {'ON', 'OFF', 'UNKNOWN'}"
+
+    class State(Enum):
+        on = "ON"
+        off = "OFF"
+        unknown = "UNKNOWN"
+
+        @classmethod
+        def has_value(cls, value):
+            return value in cls._value2member_map_
+
+    power_options = {"ON", "OFF", "UNKNOWN"}
 
     def __init__(self, bus, index, service):
         Characteristic.__init__(
-            self, bus, index, self.uuid, ["secure-read", "secure-write"], service,
+            self, bus, index, self.uuid, ["encrypt-read", "encrypt-write"], service,
         )
 
-        self.value = []
+        self.value = [0xFF]
         self.add_descriptor(CharacteristicUserDescriptionDescriptor(bus, 1, self))
 
     def ReadValue(self, options):
-        print("power Read: " + repr(self.value))
+        logging.debug("power Read: " + repr(self.value))
+        res = None
+        try:
+            res = requests.get(VivaldiBaseUrl + "/vivaldi")
+            self.value = bytearray(res.json()["machine"], encoding="utf8")
+        except Exception as e:
+            logging.error(f"Error getting status {e}")
+            self.value = bytearray(self.State.unknown, encoding="utf8")
+
         return self.value
 
     def WriteValue(self, value, options):
-        print("power Write: " + repr(value))
+        logging.debug("power Write: " + repr(value))
+        cmd = bytes(value).decode("utf-8")
+        if self.State.has_value(cmd):
+            # write it to machine
+            logging.info("writing {cmd} to machine")
+            data = {"cmd": cmd.lower()}
+            try:
+                res = requests.post(VivaldiBaseUrl + "/vivaldi/cmds", json=data)
+            except Exceptions as e:
+                logging.error(f"Error updating machine state: {e}")
+        else:
+            logger.info(f"invalid state written {cmd}")
+            raise NotPermittedException
+
         self.value = value
 
 
@@ -120,11 +155,11 @@ class BoilerControlCharacteristic(Characteristic):
         self.add_descriptor(CharacteristicUserDescriptionDescriptor(bus, 1, self))
 
     def ReadValue(self, options):
-        print("boiler Read: " + repr(self.value))
+        logger.info("boiler Read: " + repr(self.value))
         return self.value
 
     def WriteValue(self, value, options):
-        print("boiler Write: " + repr(value))
+        logger.info("boiler Write: " + repr(value))
         self.value = value
 
 
@@ -141,11 +176,19 @@ class AutoOffCharacteristic(Characteristic):
         self.add_descriptor(CharacteristicUserDescriptionDescriptor(bus, 1, self))
 
     def ReadValue(self, options):
-        print("auto off Read: " + repr(self.value))
+        logger.info("auto off Read: " + repr(self.value))
         return self.value
 
     def WriteValue(self, value, options):
-        print("auto off Write: " + repr(value))
+        logger.info("auto off Write: " + repr(value))
+
+        logging.info("writing {cmd} to machine")
+        data = {"cmd": cmd.lower()}
+        try:
+            res = requests.post(VivaldiBaseUrl + "/vivaldi/cmds", json=data)
+        except Exceptions as e:
+            logging.error(f"Error updating machine state: {e}")
+
         self.value = value
 
 
@@ -186,11 +229,11 @@ class VivaldiAdvertisement(Advertisement):
 
 
 def register_ad_cb():
-    print("Advertisement registered")
+    logger.info("Advertisement registered")
 
 
 def register_ad_error_cb(error):
-    print("Failed to register advertisement: " + str(error))
+    logger.critical("Failed to register advertisement: " + str(error))
     mainloop.quit()
 
 
@@ -208,7 +251,7 @@ def main():
     adapter = find_adapter(bus)
 
     if not adapter:
-        print("GattManager1 interface not found")
+        logger.critical("GattManager1 interface not found")
         return
 
     adapter_obj = bus.get_object(BLUEZ_SERVICE_NAME, adapter)
@@ -242,13 +285,13 @@ def main():
         error_handler=register_ad_error_cb,
     )
 
-    print("Registering GATT application...")
+    logger.info("Registering GATT application...")
 
     service_manager.RegisterApplication(
         app.get_path(),
         {},
         reply_handler=register_app_cb,
-        error_handler=register_app_error_cb,
+        error_handler=[register_app_error_cb],
     )
 
     agent_manager.RequestDefaultAgent(AGENT_PATH)
