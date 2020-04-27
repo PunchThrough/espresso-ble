@@ -1,6 +1,9 @@
 
 import dbus
 
+import logging
+import sys
+
 DBUS_OM_IFACE = "org.freedesktop.DBus.ObjectManager"
 DBUS_PROP_IFACE = "org.freedesktop.DBus.Properties"
 
@@ -14,7 +17,14 @@ LE_ADVERTISEMENT_IFACE = "org.bluez.LEAdvertisement1"
 BLUEZ_SERVICE_NAME = "org.bluez"
 GATT_MANAGER_IFACE = "org.bluez.GattManager1"
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logHandler = logging.StreamHandler()
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logHandler.setFormatter(formatter)
+logger.addHandler(logHandler)
 
+logger.setLevel(logging.DEBUG)
 
 def find_adapter(bus):
     """
@@ -50,7 +60,7 @@ class Application(dbus.service.Object):
     @dbus.service.method(DBUS_OM_IFACE, out_signature="a{oa{sa{sv}}}")
     def GetManagedObjects(self):
         response = {}
-        print("GetManagedObjects")
+        logger.info("GetManagedObjects")
 
         for service in self.services:
             response[service.get_path()] = service.get_properties()
@@ -161,22 +171,22 @@ class Characteristic(dbus.service.Object):
 
     @dbus.service.method(GATT_CHRC_IFACE, in_signature="a{sv}", out_signature="ay")
     def ReadValue(self, options):
-        print("Default ReadValue called, returning error")
+        logger.info("Default ReadValue called, returning error")
         raise NotSupportedException()
 
     @dbus.service.method(GATT_CHRC_IFACE, in_signature="aya{sv}")
     def WriteValue(self, value, options):
-        print("Default WriteValue called, returning error")
+        logger.info("Default WriteValue called, returning error")
         raise NotSupportedException()
 
     @dbus.service.method(GATT_CHRC_IFACE)
     def StartNotify(self):
-        print("Default StartNotify called, returning error")
+        logger.info("Default StartNotify called, returning error")
         raise NotSupportedException()
 
     @dbus.service.method(GATT_CHRC_IFACE)
     def StopNotify(self):
-        print("Default StopNotify called, returning error")
+        logger.info("Default StopNotify called, returning error")
         raise NotSupportedException()
 
     @dbus.service.signal(DBUS_PROP_IFACE, signature="sa{sv}as")
@@ -218,12 +228,12 @@ class Descriptor(dbus.service.Object):
 
     @dbus.service.method(GATT_DESC_IFACE, in_signature="a{sv}", out_signature="ay")
     def ReadValue(self, options):
-        print("Default ReadValue called, returning error")
+        logger.info("Default ReadValue called, returning error")
         raise NotSupportedException()
 
     @dbus.service.method(GATT_DESC_IFACE, in_signature="aya{sv}")
     def WriteValue(self, value, options):
-        print("Default WriteValue called, returning error")
+        logger.info("Default WriteValue called, returning error")
         raise NotSupportedException()
 
 class Advertisement(dbus.service.Object):
@@ -301,15 +311,15 @@ class Advertisement(dbus.service.Object):
 
     @dbus.service.method(DBUS_PROP_IFACE, in_signature="s", out_signature="a{sv}")
     def GetAll(self, interface):
-        print("GetAll")
+        logger.info("GetAll")
         if interface != LE_ADVERTISEMENT_IFACE:
             raise InvalidArgsException()
-        print("returning props")
+        logger.info("returning props")
         return self.get_properties()[LE_ADVERTISEMENT_IFACE]
 
     @dbus.service.method(LE_ADVERTISEMENT_IFACE, in_signature="", out_signature="")
     def Release(self):
-        print("%s: Released!" % self.path)
+        logger.info("%s: Released!" % self.path)
 
 
 AGENT_INTERFACE = "org.bluez.Agent1"
@@ -347,13 +357,13 @@ class Agent(dbus.service.Object):
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="", out_signature="")
     def Release(self):
-        print("Release")
+        logger.info("Release")
         if self.exit_on_release:
             mainloop.quit()
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="os", out_signature="")
     def AuthorizeService(self, device, uuid):
-        print("AuthorizeService (%s, %s)" % (device, uuid))
+        logger.info("AuthorizeService (%s, %s)" % (device, uuid))
         authorize = ask("Authorize connection (yes/no): ")
         if authorize == "yes":
             return
@@ -361,29 +371,29 @@ class Agent(dbus.service.Object):
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="s")
     def RequestPinCode(self, device):
-        print("RequestPinCode (%s)" % (device))
+        logger.info("RequestPinCode (%s)" % (device))
         set_trusted(device)
         return ask("Enter PIN Code: ")
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="u")
     def RequestPasskey(self, device):
-        print("RequestPasskey (%s)" % (device))
+        logger.info("RequestPasskey (%s)" % (device))
         set_trusted(device)
         passkey = ask("Enter passkey: ")
         return dbus.UInt32(passkey)
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="ouq", out_signature="")
     def DisplayPasskey(self, device, passkey, entered):
-        print("DisplayPasskey (%s, %06u entered %u)" % (device, passkey, entered))
+        logger.info("DisplayPasskey (%s, %06u entered %u)" % (device, passkey, entered))
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="os", out_signature="")
     def DisplayPinCode(self, device, pincode):
-        print("DisplayPinCode (%s, %s)" % (device, pincode))
+        logger.info("DisplayPinCode (%s, %s)" % (device, pincode))
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="ou", out_signature="")
     def RequestConfirmation(self, device, passkey):
-        print("RequestConfirmation (%s, %06d)" % (device, passkey))
-        confirm = ask("CCCCConfirm passkey (yes/no): ")
+        logger.info("RequestConfirmation (%s, %06d)" % (device, passkey))
+        confirm = ask("Confirm passkey (yes/no): ")
         if confirm == "yes":
             set_trusted(device)
             return
@@ -391,7 +401,7 @@ class Agent(dbus.service.Object):
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="")
     def RequestAuthorization(self, device):
-        print("RequestAuthorization (%s)" % (device))
+        logger.info("RequestAuthorization (%s)" % (device))
         auth = ask("Authorize? (yes/no): ")
         if auth == "yes":
             return
@@ -399,4 +409,4 @@ class Agent(dbus.service.Object):
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="", out_signature="")
     def Cancel(self):
-        print("Cancel")
+        logger.info("Cancel")
